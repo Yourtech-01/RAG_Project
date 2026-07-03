@@ -22,7 +22,7 @@ import google.generativeai as genai
 import os
 
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-judge = genai.GenerativeModel("gemini-1.5-flash")
+judge = genai.GenerativeModel("gemini-flash-latest")
 
 # ── Test set — update these after ingesting your own documents ────────────────
 TEST_QUESTIONS = [
