@@ -22,7 +22,7 @@ import google.generativeai as genai
 DB_PATH     = os.getenv("CHROMA_PATH", "./data/chroma_db")
 COLLECTION  = "documents"
 EMBED_MODEL = "all-MiniLM-L6-v2"
-LLM_MODEL   = "gemini-1.5-flash"
+LLM_MODEL   = "gemini-flash-latest"
 TOP_K       = int(os.getenv("TOP_K", "5"))
 MAX_TOKENS  = 1024
 
