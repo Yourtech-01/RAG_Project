@@ -25,7 +25,7 @@ st.markdown("""
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## 📄 Document Q&A")
-    st.markdown('<span class="badge">Gemini 1.5 Flash</span> &nbsp; '
+    st.markdown('<span class="badge">gemini-flash-latest</span> &nbsp; '
                 '<span class="badge">MiniLM</span>', unsafe_allow_html=True)
     st.markdown("---")
 
