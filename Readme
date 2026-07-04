@@ -1,0 +1,176 @@
+# RAG Document Q&A System
+
+A Retrieval-Augmented Generation (RAG) application that answers questions
+about a collection of documents, using **free-tier-only APIs**: local
+sentence-transformer embeddings + Google Gemini for generation. No OpenAI
+key, no paid vector database, and no paid hosting required.
+
+**Live demo:** https://ragproject-mofmxefa4cfmqcy9m9t2gw.streamlit.app/
+**API docs:** https://rag-doc-qa-api-mzks.onrender.com/docs (FastAPI auto-generated Swagger UI)
+
+---
+
+## What it does
+
+Ask a natural-language question and the system:
+
+1. Embeds your question locally with `all-MiniLM-L6-v2` (no API call).
+2. Retrieves the most relevant chunks from a ChromaDB vector store.
+3. Builds a grounded prompt from those chunks and sends it to Gemini.
+4. Returns an answer **with the exact source chunks used**, so every claim
+   is traceable back to the original document — this is what separates RAG
+   from a plain chatbot: it won't answer from parametric memory alone, and
+   it tells you where each answer came from.
+
+## Architecture
+┌─────────────────────┐
+User question  ───▶  │   Streamlit UI       │
+│   (ui/app.py)        │
+└──────────┬───────────┘
+│ HTTP POST /ask
+▼
+┌─────────────────────┐
+│   FastAPI service     │
+│   (api/main.py)       │
+└──────┬───────┬────────┘
+│       │
+embed query   │       │  generate answer
+▼       ▼
+┌────────────┐  ┌──────────────┐
+│  ChromaDB  │  │ Gemini Flash │
+│ (retrieval)│  │ (generation) │
+└─────▲──────┘  └──────────────┘
+│
+embed & store
+│
+┌───────────────────┐
+│  Ingestion         │
+│  (api/pipeline.py) │
+│  PDF / TXT / MD    │
+└───────────────────┘
+
+The API and UI are deployed as two independent services (see
+[README_DEPLOY.md](README_DEPLOY.md) for the full deployment guide):
+
+| Service | Tech | Hosted on |
+|---|---|---|
+| `api/` | FastAPI, ChromaDB, sentence-transformers, Gemini | Render |
+| `ui/`  | Streamlit | Streamlit Community Cloud |
+
+## Tech stack
+
+- **LLM:** Gemini (`gemini-flash-latest`) — free tier, used only for the final
+  answer generation, never for embeddings
+- **Embeddings:** `sentence-transformers/all-MiniLM-L6-v2` — runs locally,
+  zero cost per query
+- **Vector store:** ChromaDB (persistent, cosine similarity)
+- **Backend:** FastAPI + Pydantic
+- **Frontend:** Streamlit
+- **PDF parsing:** PyMuPDF
+
+## Why these design choices
+
+- **Local embeddings instead of an embedding API** — removes per-query cost
+  and an external dependency for the most frequently-called part of the
+  pipeline (every question requires an embedding; only one Gemini call is
+  needed per answer).
+- **Sentence-aware chunking with overlap** (512 tokens, 50-token overlap,
+  splitting on sentence boundaries rather than raw character counts) — keeps
+  chunks semantically coherent instead of cutting mid-sentence, which
+  otherwise hurts retrieval quality.
+- **Grounded prompting with an explicit refusal instruction** — the prompt
+  told to the LLM instructs it to say "I couldn't find that in the provided
+  documents" when the retrieved context doesn't contain the answer, rather
+  than falling back on the model's own knowledge. This is the core
+  anti-hallucination mechanism of the system.
+- **Two independently deployable services** — the FastAPI backend can be
+  reused by any client (a CLI, a different frontend, a Slack bot) without
+  being coupled to Streamlit.
+
+## API reference
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/ask` | POST | `{"question": str, "top_k": int}` → answer + cited sources |
+| `/documents` | GET | Lists ingested documents and chunk counts |
+| `/health` | GET | Service + model health check |
+
+Full interactive docs at https://rag-doc-qa-api-mzks.onrender.com/docs.
+
+## Evaluation
+
+`evaluate.py` scores the system using Gemini itself as a judge model against
+a small test set, producing `eval_results/ragas_scores.json` and an HTML
+report. Metrics:
+
+- **Faithfulness** — does the answer stick to the retrieved context?
+- **Answer relevancy** — does the answer address the question asked?
+- **Context quality** — were the retrieved chunks actually useful?
+
+```bash
+python evaluate.py
+```
+
+## Running locally
+
+```bash
+git clone https://github.com/Yourtech-01/rag_1.git
+cd rag_1
+export GEMINI_API_KEY=your_key_here     # free key: https://aistudio.google.com/apikey
+docker compose up --build
+```
+
+- API: http://localhost:8000/docs
+- UI: http://localhost:8501
+
+Or run each service without Docker:
+
+```bash
+# Terminal 1 — ingest + serve the API
+cd api
+pip install -r requirements.txt
+python pipeline.py --docs ./data/docs/ --reset
+uvicorn main:app --reload
+
+# Terminal 2 — serve the UI
+cd ui
+pip install -r requirements.txt
+API_URL=http://localhost:8000 streamlit run app.py
+```
+
+## Adding your own documents
+
+Drop PDF, TXT, or Markdown files into `api/data/docs/`, then re-run:
+
+```bash
+python pipeline.py --docs ./data/docs/ --reset
+```
+
+The ingestion pipeline deduplicates by filename hash, so re-running without
+`--reset` only ingests new files.
+
+## Project structure
+├── api/
+│   ├── main.py            # FastAPI service (/ask, /documents, /health)
+│   ├── pipeline.py         # Document ingestion: PDF/TXT/MD -> chunks -> embeddings -> ChromaDB
+│   ├── evaluate.py         # LLM-as-judge evaluation script
+│   ├── test_pipeline.py    # Unit tests for chunking/ingestion
+│   ├── data/docs/          # Sample documents (auto re-ingested on every boot)
+│   ├── requirements.txt
+│   └── start.sh            # Ingest + launch, used by Render
+├── ui/
+│   ├── app.py              # Streamlit chat interface
+│   └── requirements.txt
+├── docker-compose.yml       # Local multi-service dev environment
+├── render.yaml              # Render deployment blueprint
+ └── README_DEPLOY.md         # Step-by-step deployment guide
+
+## Deployment
+
+See [README_DEPLOY.md](README_DEPLOY.md) for the full Render + Streamlit
+Community Cloud deployment walkthrough.
+
+## Author
+
+Happy Kumar — M.Tech Data Science, Chandigarh University
+[GitHub](https://github.com/Yourtech-01)
